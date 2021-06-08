@@ -178,7 +178,7 @@ Class DeviceController
     public function newDevice(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         $this->session->authUser = $this->session->jwtUser($request);        
-        $check = $this->permissionCheck("device.add", $response);       
+        $check = $this->permissionCheck("devices.add", $response);       
         if(!is_object($check)){
             $db = $this->database; 
             $body = $request->getBody()->__toString();
@@ -192,7 +192,6 @@ Class DeviceController
             }
             else
             {
-
                     try
                     {
                         $add = $db->table('devices')->insert($data);
@@ -211,10 +210,409 @@ Class DeviceController
                         return $response->withHeader('Content-Type', 'application/json')
                         ->withStatus(403);   
                     }
-
             }        
         }
         if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+    public function updateDevice(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("devices.update", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['device'];
+            $id = (int)$id;        
+            $yetki = false;
+
+            $deviceDetail = $db->select('deviceID, deviceCode, device_modemID')
+            ->table('devices')
+            ->where('deviceID', $id)
+            ->getAll();
+
+            if(!$deviceDetail){
+                $return['message'] = 'Device can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $modemDetail = $db->select('modemID, modemCode, modem_groupID')
+            ->table('modems')
+            ->where('modemID', $deviceDetail[0]->device_modemID)
+            ->getAll();
+
+            if(!$modemDetail){
+                $return['message'] = 'Modem can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            if(!$this->superAdmin){
+                $modem = $modemDetail[0];
+                $groupList = $this->session->userGroups($this->session->authUser);                
+                $responseUsers = array(); 
+                if(in_array($modem->modem_groupID, $groupList)){
+                    $yetki = true;
+                }      
+            }
+            else
+            {
+                $yetki = true;
+            }
+
+            if($yetki){
+                $body = $request->getBody()->__toString();
+                $input = json_decode($body, true);                            
+                $data = $this->filterDevice($input);     
+                if(!$data){
+                    $return['message'] = 'Device can\'t updated, please send correct information';
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);                    
+                }
+                else
+                {
+                    try
+                    {
+                        $data['deviceUpdated_at'] = date('Y-m-d H:i:s');  
+                        $data['deviceID'] = $id;        
+                        $data['deviceDeleted_at'] = NULL;                                      
+                        $db->table('devices')->where('deviceID', $id)->update($data);                       
+                        $return['message'] = 'OK';
+                        $return['data'] = $data;                       
+                        $response->getBody()->write($this->session->prepareResponse($return));
+                        return $response->withHeader('Content-Type', 'application/json')
+                        ->withStatus(200);    
+                    }
+                    catch(PDOException $ex)
+                    {
+                        $return['message'] = 'ERROR';
+                        $return['data'] = $ex->errorInfo;
+                        $response->getBody()->write($this->session->prepareResponse($return));
+                        return $response->withHeader('Content-Type', 'application/json')
+                        ->withStatus(403);   
+                    }
+                } 
+            }                 
+        }
+        if(is_object($check) || !$yetki){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+    public function deleteDevice(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("devices.delete", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['device'];
+            $id = (int)$id;        
+            $yetki = false;
+
+            $deviceDetail = $db->select('deviceID, deviceCode, device_modemID')
+            ->table('devices')
+            ->where('deviceID', $id)
+            ->getAll();
+
+            if(!$deviceDetail){
+                $return['message'] = 'Device can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $modemDetail = $db->select('modemID, modemCode, modem_groupID')
+            ->table('modems')
+            ->where('modemID', $deviceDetail[0]->device_modemID)
+            ->getAll();
+
+            if(!$modemDetail){
+                $return['message'] = 'Modem can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            if(!$this->superAdmin){
+                $modem = $modemDetail[0];
+                $groupList = $this->session->userGroups($this->session->authUser);                
+                $responseUsers = array(); 
+                if(in_array($modem->modem_groupID, $groupList)){
+                    $yetki = true;
+                }      
+            }
+            else
+            {
+                $yetki = true;
+            }
+
+            if($yetki){                
+                try
+                {
+                    $data['deviceUpdated_at'] = date('Y-m-d H:i:s');  
+                    $data['deviceDeleted_at'] = date('Y-m-d H:i:s');
+                    $data['deviceStatus'] = 0;
+                    $data['deviceID'] = $id;                      
+                    $update = $db->table('devices')->where('deviceID', $id)->update($data);                       
+                    $return['message'] = 'OK';                                    
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(200);    
+                }
+                catch(PDOException $ex)
+                {
+                    $return['message'] = 'ERROR';
+                    $return['data'] = $ex->errorInfo;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);   
+                }
+                
+            }                 
+        }
+        if(is_object($check) || !$yetki){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function newDeviceTable(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("devices.add", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $body = $request->getBody()->__toString();
+            $input = json_decode($body, true);                            
+            $data = $this->filterDeviceTable($input);     
+            
+            if(!$data){
+                $return['message'] = 'Device Table can\'t added, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);                    
+            }
+            else
+            {
+                    try
+                    {
+                        $add = $db->table('device_table')->insert($data);
+                        $data['tableID'] = $add;
+                        $return['message'] = 'OK';
+                        $return['data'] = $data;
+                        $response->getBody()->write($this->session->prepareResponse($return));
+                        return $response->withHeader('Content-Type', 'application/json')
+                        ->withStatus(201);    
+                    }
+                    catch(PDOException $ex)
+                    {
+                        $return['message'] = 'ERROR';
+                        $return['data'] = $ex->errorInfo;
+                        $response->getBody()->write($this->session->prepareResponse($return));
+                        return $response->withHeader('Content-Type', 'application/json')
+                        ->withStatus(403);   
+                    }
+            }        
+        }
+        if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function updateDeviceTable(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("devices.update", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['table'];
+            $id = (int)$id;        
+            $yetki = false;
+
+            $tableDetail = $db->select('tableID, tableCode, table_deviceID, table_modemID')
+            ->table('device_table')
+            ->where('tableID', $id)
+            ->getAll();
+
+            if(!$tableDetail){
+                $return['message'] = 'Table can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $deviceDetail = $db->select('deviceID, deviceCode, device_modemID')
+            ->table('devices')
+            ->where('deviceID', $tableDetail[0]->table_deviceID)
+            ->getAll();
+
+            if(!$deviceDetail){
+                $return['message'] = 'Device can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $modemDetail = $db->select('modemID, modemCode, modem_groupID')
+            ->table('modems')
+            ->where('modemID', $deviceDetail[0]->device_modemID)
+            ->getAll();
+
+            if(!$modemDetail){
+                $return['message'] = 'Modem can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            if(!$this->superAdmin){
+                $modem = $modemDetail[0];
+                $groupList = $this->session->userGroups($this->session->authUser);                
+                $responseUsers = array(); 
+                if(in_array($modem->modem_groupID, $groupList)){
+                    $yetki = true;
+                }      
+            }
+            else
+            {
+                $yetki = true;
+            }
+
+            if($yetki){
+                $body = $request->getBody()->__toString();
+                $input = json_decode($body, true);                            
+                $data = $this->filterDeviceTable($input);     
+                if(!$data){
+                    $return['message'] = 'Table can\'t updated, please send correct information';
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);                    
+                }
+                else
+                {
+                    try
+                    {
+                        $data['tableID'] = $id;       
+                        $db->table('device_table')->where('tableID', $id)->update($data);                       
+                        $return['message'] = 'OK';
+                        $return['data'] = $data;                       
+                        $response->getBody()->write($this->session->prepareResponse($return));
+                        return $response->withHeader('Content-Type', 'application/json')
+                        ->withStatus(200);    
+                    }
+                    catch(PDOException $ex)
+                    {
+                        $return['message'] = 'ERROR';
+                        $return['data'] = $ex->errorInfo;
+                        $response->getBody()->write($this->session->prepareResponse($return));
+                        return $response->withHeader('Content-Type', 'application/json')
+                        ->withStatus(403);   
+                    }
+                } 
+            }                 
+        }
+        if(is_object($check) || !$yetki){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function deleteDeviceTable(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("devices.delete", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['table'];
+            $id = (int)$id;        
+            $yetki = false;
+
+            $tableDetail = $db->select('tableID, tableCode, table_deviceID, table_modemID')
+            ->table('device_table')
+            ->where('tableID', $id)
+            ->getAll();
+
+            if(!$tableDetail){
+                $return['message'] = 'Table can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $deviceDetail = $db->select('deviceID, deviceCode, device_modemID')
+            ->table('devices')
+            ->where('deviceID', $tableDetail[0]->table_deviceID)
+            ->getAll();
+
+            if(!$deviceDetail){
+                $return['message'] = 'Device can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $modemDetail = $db->select('modemID, modemCode, modem_groupID')
+            ->table('modems')
+            ->where('modemID', $deviceDetail[0]->device_modemID)
+            ->getAll();
+
+            if(!$modemDetail){
+                $return['message'] = 'Modem can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            if(!$this->superAdmin){
+                $modem = $modemDetail[0];
+                $groupList = $this->session->userGroups($this->session->authUser);                
+                $responseUsers = array(); 
+                if(in_array($modem->modem_groupID, $groupList)){
+                    $yetki = true;
+                }      
+            }
+            else
+            {
+                $yetki = true;
+            }
+
+            if($yetki){                
+                try
+                {
+                    $db->table('device_table')->where('tableID', $id)->delete();                       
+                    $return['message'] = 'OK';                                          
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(200);    
+                }
+                catch(PDOException $ex)
+                {
+                    $return['message'] = 'ERROR';
+                    $return['data'] = $ex->errorInfo;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);   
+                }
+                
+            }                 
+        }
+        if(is_object($check) || !$yetki){
             $return['message'] = 'You are not authorized to update this content. ';
             $response->getBody()->write($this->session->prepareResponse($return));
             return $response->withHeader('Content-Type', 'application/json')
@@ -292,8 +690,7 @@ Class DeviceController
         if(count($resp)){
             return $resp;
         }
-        return false;
-       
+        return false;       
     }
 
     private function filterDeviceTable($input){

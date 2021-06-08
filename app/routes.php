@@ -45,6 +45,12 @@ return function(App $app){
         $group->get('/devices', DeviceController::class.':getDevices');
         $group->get('/devices/{page}', DeviceController::class.':getDevices');
         $group->get('/device/table/{device}', DeviceController::class.':getDeviceTable');
+        $group->post('/device/new', DeviceController::class.':newDevice');
+        $group->put('/device/{device}', DeviceController::class.':updateDevice');
+        $group->delete('/device/{device}', DeviceController::class.':deleteDevice');
+        $group->post('/device/table/new', DeviceController::class.':newDeviceTable');
+        $group->put('/device/table/{table}', DeviceController::class.':updateDeviceTable');
+        $group->delete('/device/table/{table}', DeviceController::class.':deleteDeviceTable');
 
     })->add(new AuthMiddleware());
 

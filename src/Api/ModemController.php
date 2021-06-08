@@ -229,7 +229,7 @@ Class ModemController
                 $input = json_decode($body, true);                            
                 $data = $this->filterModem($input);     
                 if(!$data){
-                    $return['message'] = 'Modem can\'t added, please send correct information';
+                    $return['message'] = 'Modem can\'t updated, please send correct information';
                     $response->getBody()->write($this->session->prepareResponse($return));
                     return $response->withHeader('Content-Type', 'application/json')
                     ->withStatus(403);                    
