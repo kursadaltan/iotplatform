@@ -8,6 +8,7 @@ use Psr\Http\Message\ResponseInterface;
 use DI\Container;
 use IoT\Api\DeviceController;
 use IoT\Api\ModemController;
+use IoT\Api\ProductController;
 use IoT\Api\SessionController;
 use IoT\Api\UserController;
 use IoT\System\Middleware\AuthMiddleware;
@@ -29,6 +30,7 @@ return function(App $app){
         $group->put('/users/{user}',   UserController::class.':updateUser');
         $group->post('/users/new',   UserController::class.':newUser');
         $group->get('/users/{user}/groups', UserController::class.':getUserGroups');
+        
         $group->get('/groups', UserController::class.':listGroups');
         $group->post('/groups/new', UserController::class.':addGroups');
         $group->get('/groups/{group}',   UserController::class.':getGroup');
@@ -51,6 +53,18 @@ return function(App $app){
         $group->post('/device/table/new', DeviceController::class.':newDeviceTable');
         $group->put('/device/table/{table}', DeviceController::class.':updateDeviceTable');
         $group->delete('/device/table/{table}', DeviceController::class.':deleteDeviceTable');
+
+        $group->get('/products', ProductController::class.':getProducts');
+        $group->get('/products/{page}', ProductController::class.':getProducts');
+        $group->get('/product/table/{product}', ProductController::class.':getProductTable');
+        $group->post('/product/new', ProductController::class.':newProduct');
+        $group->put('/product/{product}', ProductController::class.':updateProduct');
+        $group->delete('/product/{product}', ProductController::class.':deleteProduct');
+        $group->post('/product/table/new', ProductController::class.':newProductTable');
+        $group->put('/product/table/{table}', ProductController::class.':updateProductTable');
+        $group->delete('/product/table/{table}', ProductController::class.':deleteProductTable');
+
+
 
     })->add(new AuthMiddleware());
 
