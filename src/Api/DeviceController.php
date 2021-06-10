@@ -641,7 +641,15 @@ Class DeviceController
         $last = count($explode)-1;
         $explode[$last] = str_replace("$active", "$previous", $explode[$last]);
         $newPath = implode("/", $explode);
-        return "$scheme://$host$newPath";
+        $params = $request->getUri()->getQuery();
+        if(strlen($params) > 0){
+            $params = "?".$params;
+        }
+        else
+        {
+            $params = "";
+        }
+        return "$scheme://$host$newPath".$params;
     }
     private function nextPage($request){
         $active = $this->activePage;
@@ -655,7 +663,15 @@ Class DeviceController
         $explode[$last] = str_replace("$active", "$previous", $explode[$last]);
         $explode[$last] = str_replace("0", "$previous", $explode[$last]);
         $newPath = implode("/", $explode);
-        return "$scheme://$host$newPath";
+        $params = $request->getUri()->getQuery();
+        if(strlen($params) > 0){
+            $params = "?".$params;
+        }
+        else
+        {
+            $params = "";
+        }
+        return "$scheme://$host$newPath".$params;
     }
 
     private function filterDevice($input){
@@ -774,6 +790,7 @@ Class DeviceController
     }
 
     private function checkParams($params, $args){
+        $this->activePage = $this->pagination($args);
         if(isset($params['order_by'])){
             $this->order_by = strip_tags(trim($params['order_by']));
         }
@@ -794,8 +811,7 @@ Class DeviceController
             }
             else
             {
-                $this->pagination = true;
-                $this->activePage = $this->pagination($args);
+                $this->pagination = true;               
             }            
         }
 

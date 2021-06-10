@@ -155,6 +155,9 @@ Class SessionController
 
 
     public function prepareResponse($object){
+        $return = json_encode($object);
+        return $return;
+        /*
         if(is_object($object)){
             if(sizeof($object) > 0){
                 $return = json_encode($object);
@@ -173,6 +176,7 @@ Class SessionController
         {
             return false;
         }
+        */
     }
 
     public function getPermission($userID){      

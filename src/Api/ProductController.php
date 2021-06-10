@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace IoT\Api;
 
-
-
+use \Iot\System\Helpers\Helper;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -18,6 +17,8 @@ use IoT\Api\SessionController;
 
 use \IoT\System\Helpers\JWTDecode;
 use PDOException;
+use stdClass;
+
 
 Class ProductController 
 {
@@ -37,19 +38,24 @@ Class ProductController
     private $search = null;
     private $pagination = true;
     private $brand = null;
+    private $group_ownerID;
+    private $groupSub = true;
+    private $code;
+    private $helper;
 
     public function __construct(Container $container)
     {
         $this->container = $container;
         $this->database = $this->container->get("connection");        
         $this->session = new SessionController($container);
+        
     }
 
     public function getProducts(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {        
         $this->checkParams($request->getQueryParams(), $args);
         $this->session->authUser = $this->session->jwtUser($request);     
-        $totalRecord = 0;   
+        $totalRecord = 0;          
         $check = $this->permissionCheck("products.index", $response);                
         if(!is_object($check)){           
             $db = $this->database; 
@@ -86,7 +92,7 @@ Class ProductController
                 $responseProducts['activePage'] = $this->activePage;
                 $responseProducts['totalRecord'] = $totalRecord;
                 if($this->activePage>1) $responseProducts['previousPage'] = $this->previousPage($request);
-                if($this->activePage < $totalPage) $responseProducts['nextPage'] = $this->nextPage($request);          
+                if($this->activePage < $totalPage) $responseProducts['nextPage'] = $this->nextPage($request);         
                 $responseProducts['data'] = array();
                 $start = ($this->activePage-1) * $this->pageLimit;
                 for($i=($start); $i<($start+ $this->pageLimit); $i++){
@@ -490,7 +496,375 @@ Class ProductController
         }  
     }
 
+
+    public function getProductGroups(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {        
+        $this->checkParams($request->getQueryParams(), $args);
+        $this->session->authUser = $this->session->jwtUser($request);     
+        $totalRecord = 0;   
+        $this->order_by = "groupID";
+        $check = $this->permissionCheck("products.groups.index", $response);                
+        if(!is_object($check)){           
+            $db = $this->database; 
+            $db->table('product_groups')           
+            ->orderBy("$this->order_by $this->sort_by")       
+            ->cache(60); 
+            if(!empty($this->id)){
+                $db->where('groupID', $this->id);
+            }      
+            if(!empty($this->search)){  
+                $db->grouped(function($q){
+                    $q->like('groupName', "%$this->search%");
+                });
+            }
+            if(!empty($this->group_ownerID)){
+                $db->where('group_ownerID', $this->group_ownerID);
+                $this->groupSub = false;
+            } 
+            if(!$this->superAdmin){               
+                $db->where('groupStatus', 1);        
+            }                       
+            $responseProducts = $db->getAll();  
+            if($this->groupSub){
+                $list = array();    
+                foreach($responseProducts as $group){
+                    $list[$group->groupID] = $group;    
+                }              
+                if($this->groupID > 0){
+                    $tree = $list[$this->groupID];
+                    $tree->subGroup = $this->buildTree($list, $this->groupID);
+                }
+                else
+                {
+                    $tree = $this->buildTree($list, 0);
+                }              
+                
+                $responseProducts = $tree;
+            }
+
+            $return =  $this->session->prepareResponse($responseProducts);
+            if($return){
+                echo $return;
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(200);
+            }
+            else
+            {
+                $return['message'] = 'Groups can\'t found';   
+                echo $this->session->prepareResponse($return);
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);         
+            }       
+        }
+        else
+        {
+            return $check;
+        }       
+    }
     
+    public function newProductGroup(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("products.groups.add", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $body = $request->getBody()->__toString();
+            $input = json_decode($body, true);                            
+            $data = $this->filterProductGroup($input);     
+            if(!$data){
+                $return['message'] = 'Group can\'t added, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);                    
+            }
+            else
+            {
+                try
+                {
+                    $add = $db->table('product_groups')->insert($data);
+                    $data['groupID'] = $add;
+                    $return['message'] = 'OK';
+                    $return['data'] = $data;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(201);    
+                }
+                catch(PDOException $ex)
+                {
+                    $return['message'] = 'ERROR';
+                    $return['data'] = $ex->errorInfo;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);   
+                }
+            }        
+        }
+        if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function updateProductGroup(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("products.groups.update", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['group'];
+            $id = (int)$id;       
+            $groupDetail = $db->table('product_groups')
+            ->where('groupID', $id)
+            ->getAll();
+
+            if(!$groupDetail){
+                $return['message'] = 'Group can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $body = $request->getBody()->__toString();
+            $input = json_decode($body, true);                            
+            $data = $this->filterProductGroup($input);     
+            if(!$data){
+                $return['message'] = 'Group can\'t updated, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);                    
+            }
+            else
+            {
+                try
+                {
+                    $data['groupID'] = $id;       
+                    $db->table('product_groups')->where('groupID', $id)->update($data);                       
+                    $return['message'] = 'OK';
+                    $return['data'] = $data;                       
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(200);    
+                }
+                catch(PDOException $ex)
+                {
+                    $return['message'] = 'ERROR';
+                    $return['data'] = $ex->errorInfo;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);   
+                }
+            }                            
+        }
+        if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function deleteProductGroup(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("products.groups.update", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['group'];
+            $id = (int)$id;       
+            $groupDetail = $db->table('product_groups')
+            ->where('groupID', $id)
+            ->getAll();
+
+            if(!$groupDetail){
+                $return['message'] = 'Group can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+            try
+            {
+                $data['groupStatus'] = $id; 
+                $data['groupDeleted_at'] = date('Y-m-d H:i:s');      
+                $db->table('product_groups')->where('groupID', $id)->update($data);                       
+                $return['message'] = 'OK';                          
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(200);    
+            }
+            catch(PDOException $ex)
+            {
+                $return['message'] = 'ERROR';
+                $return['data'] = $ex->errorInfo;
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);   
+            }                                      
+        }
+        if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function getLabels(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {        
+        $this->checkParams($request->getQueryParams(), $args);
+        $this->session->authUser = $this->session->jwtUser($request);     
+        $totalRecord = 0;   
+        $this->order_by = "labelID";
+        $check = $this->permissionCheck("labels.index", $response);                
+        if(!is_object($check)){           
+            $db = $this->database; 
+            $db->table('labels')           
+            ->orderBy("$this->order_by $this->sort_by")       
+            ->cache(60); 
+            if(!empty($this->id)){
+                $db->where('labelID', $this->id);
+            }   
+            if(!empty($this->code)){
+                $db->where('labelCode', $this->code);
+            }  
+            if(!empty($this->unit)){
+                $db->where('labelUnit', $this->unit);
+            }    
+            if(!empty($this->search)){  
+                $db->grouped(function($q){
+                    $q->like('labelName', "%$this->search%");
+                });
+            }                   
+            $responseLabels = $db->getAll();      
+
+            $return =  $this->session->prepareResponse($responseLabels);
+            if($return){
+                echo $return;
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(200);
+            }
+            else
+            {
+                $return['message'] = 'Labels can\'t found';   
+                echo $this->session->prepareResponse($return);
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);         
+            }       
+        }
+        else
+        {
+            return $check;
+        }       
+    }
+
+    public function newLabel(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("labels.add", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $body = $request->getBody()->__toString();
+            $input = json_decode($body, true);                            
+            $data = $this->filterLabel($input);     
+            if(!$data){
+                $return['message'] = 'Label can\'t added, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);                    
+            }
+            else
+            {
+                try
+                {
+                    $add = $db->table('labels')->insert($data);
+                    $data['labelID'] = $add;
+                    $return['message'] = 'OK';
+                    $return['data'] = $data;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(201);    
+                }
+                catch(PDOException $ex)
+                {
+                    $return['message'] = 'ERROR';
+                    $return['data'] = $ex->errorInfo;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);   
+                }
+            }        
+        }
+        if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function updateLabel(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("labels.update", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['label'];
+            $id = (int)$id;       
+            $labelDetail = $db->table('labels')
+            ->where('groupID', $id)
+            ->getAll();
+
+            if(!$labelDetail){
+                $return['message'] = 'Label can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $body = $request->getBody()->__toString();
+            $input = json_decode($body, true);                            
+            $data = $this->filterLabel($input);     
+            if(!$data){
+                $return['message'] = 'Label can\'t updated, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);                    
+            }
+            else
+            {
+                try
+                {
+                    $data['labelID'] = $id;       
+                    $db->table('labels')->where('labelID', $id)->update($data); 
+                    
+                    $table['table_label'] = $data['labelName'];
+                    $db->table('device_table')->where('table_labelID', $id)->update($table);
+                    $db->table('product_table')->where('table_labelID', $id)->update($table);
+
+                    $return['message'] = 'OK';
+                    $return['data'] = $data;                       
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(200);    
+                }
+                catch(PDOException $ex)
+                {
+                    $return['message'] = 'ERROR';
+                    $return['data'] = $ex->errorInfo;
+                    $response->getBody()->write($this->session->prepareResponse($return));
+                    return $response->withHeader('Content-Type', 'application/json')
+                    ->withStatus(403);   
+                }
+            }                            
+        }
+        if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
 
     private function pagination($args){      
        $activePage = 1;
@@ -498,7 +872,7 @@ Class ProductController
             $activePage = (int)$args['page'];
         }          
         if($activePage <= 1) $activePage = 1;     
-        $this->activePage = $activePage;   
+        $this->activePage = $activePage; 
         return $activePage;
     }
     
@@ -513,7 +887,15 @@ Class ProductController
         $last = count($explode)-1;
         $explode[$last] = str_replace("$active", "$previous", $explode[$last]);
         $newPath = implode("/", $explode);
-        return "$scheme://$host$newPath";
+        $params = $request->getUri()->getQuery();
+        if(strlen($params) > 0){
+            $params = "?".$params;
+        }
+        else
+        {
+            $params = "";
+        }
+        return "$scheme://$host$newPath".$params;
     }
     private function nextPage($request){
         $active = $this->activePage;
@@ -527,7 +909,16 @@ Class ProductController
         $explode[$last] = str_replace("$active", "$previous", $explode[$last]);
         $explode[$last] = str_replace("0", "$previous", $explode[$last]);
         $newPath = implode("/", $explode);
-        return "$scheme://$host$newPath";
+        
+        $params = $request->getUri()->getQuery();
+        if(strlen($params) > 0){
+            $params = "?".$params;
+        }
+        else
+        {
+            $params = "";
+        }
+        return "$scheme://$host$newPath".$params;
     }
 
     private function filterProduct($input){
@@ -630,7 +1021,44 @@ Class ProductController
         return false;       
     }
 
+    private function filterProductGroup($input){
+        $resp = array();
+        if(isset($input['groupName'])) 
+            $resp['groupName'] = strip_tags(trim($input['groupName'])); 
+        
+        if(isset($input['groupStatus'])) 
+            $resp['groupStatus'] = (int)$input['groupStatus'];
+       
+        if(isset($input['group_ownerID'])) 
+            $resp['group_ownerID'] = (int)$input['group_ownerID'];
+
+        if(count($resp)){
+            return $resp;
+        }        
+        return false;       
+    }
+    private function filterLabel($input){
+        $resp = array();
+        if(isset($input['labelName'])) 
+        {
+            $resp['labelName'] = strip_tags(trim($input['labelName'])); 
+            $helper  = new \Iot\System\Helpers\Helper("test");
+
+            $resp['labelCode'] = $helper->toSerp("testsd1 123");
+        }      
+        
+        if(isset($input['labelUnit'])) 
+            $resp['labelUnit'] = strip_tags(trim($input['labelUnit'])); 
+
+        if(count($resp)){
+            return $resp;
+        }
+        return false;       
+    }
+
     private function checkParams($params, $args){
+        $this->activePage = $this->pagination($args);
+
         if(isset($params['order_by'])){
             $this->order_by = strip_tags(trim($params['order_by']));
         }
@@ -651,8 +1079,7 @@ Class ProductController
             }
             else
             {
-                $this->pagination = true;
-                $this->activePage = $this->pagination($args);
+                $this->pagination = true;                
             }            
         }
 
@@ -667,6 +1094,24 @@ Class ProductController
         }
         if(isset($params['group'])){
             $this->groupID = strip_tags(trim($params['group']));
+        }
+        if(isset($params['group_owner'])){
+            $this->group_ownerID = strip_tags(trim($params['group_owner']));
+        }
+        if(isset($params['code'])){
+            $this->code = strip_tags(trim($params['code']));
+        }
+        if(isset($params['unit'])){
+            $this->unit = strip_tags(trim($params['unit']));
+        }
+        if(isset($params['groupSub'])){
+            if($params['groupSub'] == "false"){
+                $this->groupSub = false;
+            }
+            else
+            {
+                $this->groupSub = true;               
+            }            
         }
 
         return true;
@@ -721,7 +1166,22 @@ Class ProductController
         return $responseModem;
     }
 
+    protected function buildTree(&$elements, $parentId = 0){
+        $branch = array();    
+        foreach ($elements as $element) {
+            if ($element->group_ownerID == $parentId) {
+                $children = $this->buildTree($elements, $element->groupID);
+                if ($children) {                   
+                    $element->subGroup = $children;
+                }
+                array_push($branch, $element);
+                //$branch[$element->groupID] = $element;
+            }
+        }
+        return $branch;
+    }
     
+   
 
 
 }
