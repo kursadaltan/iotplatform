@@ -1,4 +1,1 @@
 vendor/
-.env
-*.cache
-*.log
