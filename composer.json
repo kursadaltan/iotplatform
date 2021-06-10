@@ -1,0 +1,26 @@
+{
+    "name": "kursad/iotapi",
+    "description": "IoT Platformu icin hazirlanan Restp API projesi",
+    "authors": [
+        {
+            "name": "kursadaltan",
+            "email": "iletisim@kursadaltan.com"
+        }
+    ],
+    "require": {
+        "slim/slim-skeleton": "^4.3",
+        "firebase/php-jwt": "^5.2",       
+        "guzzlehttp/psr7": "^1.8",
+        "http-interop/http-factory-guzzle": "^1.0",
+        "slim/psr7": "^1.4",
+        "nyholm/psr7-server": "^1.0",
+        "laminas/laminas-diactoros": "^2.5",
+        "nyholm/psr7": "^1.4",
+        "izniburak/pdox": "^1.5"            
+    },
+    "autoload": {
+        "psr-4": {
+            "IoT\\": "src/"
+        }
+    }
+}

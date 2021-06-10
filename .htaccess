@@ -1,0 +1,5 @@
+RewriteEngine On
+RewriteBase /iot-api/
+
+RewriteCond %{ENV:REDIRECT_STATUS} !200
+RewriteRule ^(.*)$ public/index.php/$1
