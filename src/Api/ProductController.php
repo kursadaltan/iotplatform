@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace IoT\Api;
 
-use \Iot\System\Helpers\Helper;
+use Iot\System\Helpers\Helper;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -812,7 +812,7 @@ Class ProductController
             $id = $args['label'];
             $id = (int)$id;       
             $labelDetail = $db->table('labels')
-            ->where('groupID', $id)
+            ->where('labelID', $id)
             ->getAll();
 
             if(!$labelDetail){
@@ -857,6 +857,78 @@ Class ProductController
                     ->withStatus(403);   
                 }
             }                            
+        }
+        if(is_object($check)){
+            $return['message'] = 'You are not authorized to update this content. ';
+            $response->getBody()->write($this->session->prepareResponse($return));
+            return $response->withHeader('Content-Type', 'application/json')
+            ->withStatus(403);
+        }  
+    }
+
+    public function deleteLabel(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $this->session->authUser = $this->session->jwtUser($request);        
+        $check = $this->permissionCheck("labels.delete", $response);       
+        if(!is_object($check)){
+            $db = $this->database; 
+            $id = $args['label'];
+            $id = (int)$id;       
+
+            if($id == 1){
+                $return['message'] = 'Label can\'t delete, this is first labels';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $labelDetail = $db->table('labels')
+            ->where('labelID', $id)
+            ->getAll();
+
+            if(!$labelDetail){
+                $return['message'] = 'Label can\'t found, please send correct information';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(404);
+            }
+
+            $body = $request->getBody()->__toString();
+            $input = json_decode($body, true);   
+            $labelName = "NULL";
+            $labelID = "1";
+
+            if(isset($input['transferLabel'])){
+                $transfer  = (int)$input['transferLabel'];
+                $transfer = $db->table('labels')->where('labelID', $transfer)->getAll();
+                $newLabel = $transfer[0];
+                if($newLabel){
+                    $labelName = $newLabel->labelName;
+                    $labelID = $newLabel->labelID;
+                }
+            } 
+            try
+            {
+                $table['table_label'] = $labelName;
+                $table['table_labelID'] = $labelID;
+                $db->table('device_table')->where('table_labelID', $id)->update($table);
+                $db->table('product_table')->where('table_labelID', $id)->update($table);
+
+                $db->table('labels')->where('labelID', $id)->delete();
+                $return['message'] = 'OK';
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(200);    
+            }
+            catch(PDOException $ex)
+            {
+                $return['message'] = 'ERROR';
+                $return['data'] = $ex->errorInfo;
+                $response->getBody()->write($this->session->prepareResponse($return));
+                return $response->withHeader('Content-Type', 'application/json')
+                ->withStatus(403);   
+            }
+                                       
         }
         if(is_object($check)){
             $return['message'] = 'You are not authorized to update this content. ';
@@ -1042,11 +1114,8 @@ Class ProductController
         if(isset($input['labelName'])) 
         {
             $resp['labelName'] = strip_tags(trim($input['labelName'])); 
-            $helper  = new \Iot\System\Helpers\Helper("test");
-
-            $resp['labelCode'] = $helper->toSerp("testsd1 123");
-        }      
-        
+            $resp['labelCode'] = Helper::toSerp($resp['labelName']);
+        }             
         if(isset($input['labelUnit'])) 
             $resp['labelUnit'] = strip_tags(trim($input['labelUnit'])); 
 

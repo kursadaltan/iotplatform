@@ -67,7 +67,8 @@ return function(App $app){
 
         $group->get('/products/labels', ProductController::class.':getLabels');
         $group->post('/products/labels/new', ProductController::class.':newLabel');
-
+        $group->put('/products/labels/{label}', ProductController::class.':updateLabel');
+        $group->delete('/products/labels/{label}', ProductController::class.':deleteLabel');
         
 
     })->add(new AuthMiddleware());

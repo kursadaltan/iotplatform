@@ -18,9 +18,13 @@
         "nyholm/psr7": "^1.4",
         "izniburak/pdox": "^1.5"            
     },
+    "config": {
+        "optimize-autoloader": true
+    },
     "autoload": {
         "psr-4": {
-            "IoT\\": "src/"
-        }
+            "IoT\\": "./src"
+        },
+        "classmap": ["src/"]
     }
 }
